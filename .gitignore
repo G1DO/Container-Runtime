@@ -1,0 +1,20 @@
+# Build output
+bin/
+*.exe
+
+# Test data
+testdata/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# Project files not for version control
+PLAN.md
+MILESTONES.md
+JOURNAL.md
