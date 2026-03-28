@@ -14,7 +14,6 @@ testdata/
 # OS
 .DS_Store
 
-# Project files not for version control
-PLAN.md
-MILESTONES.md
-JOURNAL.md
+# Private docs
+docs/PLAN.md
+docs/JOURNAL.md

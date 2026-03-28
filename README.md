@@ -107,14 +107,7 @@ docker build -f Dockerfile.dev -t myruntime-dev .
 docker run --privileged -it -v $(pwd):/workspace myruntime-dev
 ```
 
-## Project Structure
+## Docs
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the full breakdown.
-
-## Milestones
-
-See [MILESTONES.md](MILESTONES.md) for the learning roadmap.
-
-## Learning Journal
-
-See [JOURNAL.md](JOURNAL.md) — fill it in as you go.
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — component breakdown, dependency graph, data flows
+- [MILESTONES.md](docs/MILESTONES.md) — 29-milestone learning roadmap across 9 phases
