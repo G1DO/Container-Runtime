@@ -13,6 +13,7 @@ import (
 // These flags are passed to clone(2) / unshare(2) when forking the container process.
 func CloneFlags(config *specs.ContainerConfig) uintptr {
 	// TODO(M1.1): Return CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWNET | CLONE_NEWUSER
+
 	return 0
 }
 
