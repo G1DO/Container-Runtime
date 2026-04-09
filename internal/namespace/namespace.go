@@ -6,6 +6,8 @@
 package namespace
 
 import (
+	"syscall"
+
 	"github.com/G1DO/Container-Runtime/pkg/specs"
 )
 
@@ -13,8 +15,7 @@ import (
 // These flags are passed to clone(2) / unshare(2) when forking the container process.
 func CloneFlags(config *specs.ContainerConfig) uintptr {
 	// TODO(M1.1): Return CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWNET | CLONE_NEWUSER
-
-	return 0
+	return syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWNET | syscall.CLONE_NEWUSER
 }
 
 // SetupHostname sets the container's hostname via the UTS namespace.
