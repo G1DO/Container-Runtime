@@ -23,20 +23,54 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"syscall"
+
+	"github.com/G1DO/Container-Runtime/internal/namespace"
 )
 
 func main() {
-	// TODO(M7.1): Initialize urfave/cli app with all commands and flags
-	// TODO(M7.1): Initialize container.Runtime
-	// TODO(M7.1): Run CLI app
-
-	// Placeholder so the binary compiles and runs.
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "myruntime: a container runtime built from scratch")
 		fmt.Fprintln(os.Stderr, "usage: myruntime <command> [args...]")
 		os.Exit(1)
 	}
 
-	fmt.Fprintf(os.Stderr, "myruntime: command %q not yet implemented\n", os.Args[1])
-	os.Exit(1)
+	switch os.Args[1] {
+	case "init":
+		// Child side: we're inside the new namespaces.
+		// os.Args looks like: ["myruntime", "init", "/bin/sh", ...]
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "myruntime init: missing command")
+			os.Exit(1)
+		}
+		cmd := os.Args[2]
+		args := os.Args[2:]
+		if err := syscall.Exec(cmd, args, os.Environ()); err != nil {
+			fmt.Fprintf(os.Stderr, "myruntime init: exec %s: %v\n", cmd, err)
+			os.Exit(1)
+		}
+
+	case "run":
+		// Parent side: fork ourselves into new namespaces.
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "myruntime run: missing command")
+			os.Exit(1)
+		}
+		cmd := exec.Command("/proc/self/exe", append([]string{"init"}, os.Args[2:]...)...)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			Cloneflags: namespace.CloneFlags(nil),
+		}
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "myruntime run: %v\n", err)
+			os.Exit(1)
+		}
+
+	default:
+		fmt.Fprintf(os.Stderr, "myruntime: command %q not yet implemented\n", os.Args[1])
+		os.Exit(1)
+	}
 }
