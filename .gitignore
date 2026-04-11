@@ -1,8 +1,7 @@
 # Build output
 bin/
-myruntime
 *.exe
-
+myruntime
 # Test data
 testdata/
 
