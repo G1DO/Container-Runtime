@@ -58,6 +58,16 @@ Legend:
 2. Why must you make the root mount `MS_PRIVATE` before `pivot_root`?
 3. What happens if you forget to unmount the old root after pivot?
 
+**Suggested todo order:**
+- [ ] Study: `man 2 pivot_root` — what it does, its preconditions, and how it differs from `chroot`
+- [ ] Study: `man 2 chroot` escape techniques — understand why `chroot` is insufficient for container security
+- [ ] Study: `man 7 mount_namespaces` — mount propagation types (`shared`, `private`, `slave`, `unbindable`)
+- [ ] Study: `MS_REC | MS_PRIVATE` — why the root mount must be made private before `pivot_root`
+- [ ] Study: read runc's `rootfs_linux.go` pivot_root implementation in the reference runtime
+- [ ] Answer the 3 checkpoint questions above before writing any code
+- [ ] Write integration tests first in `tests/mount_test.go`: writes to `/tmp/test` stay inside the container, `ls /` shows only the container rootfs, and host mounts are unchanged after exit
+- [ ] Implement `internal/filesystem/mounts.go`: make mounts private, bind-mount the new root, `pivot_root`, `chdir("/")`, unmount the old root, then wire `SetupContainerMounts` into `internal/container/init.go`
+
 ---
 
 ### M1.3: UTS Namespace — Hostname Isolation (1 day)
