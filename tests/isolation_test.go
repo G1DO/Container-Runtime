@@ -56,6 +56,7 @@ func TestPIDNamespacePID1(t *testing.T) {
 // TestPIDIsolation verifies that a container only sees its own processes.
 func TestPIDIsolation(t *testing.T) {
 	needsRoot(t)
+	
 	// NOTE: ps reads /proc — since we don't have mount namespace isolation yet
 	// (M1.2), /proc is the host's, so ps will show host processes.
 	// This test will become meaningful after M1.2 mounts a fresh /proc.
