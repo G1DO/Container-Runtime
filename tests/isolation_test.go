@@ -43,7 +43,7 @@ func TestPIDNamespacePID1(t *testing.T) {
 	needsRoot(t)
 	bin := runtimeBinary(t)
 
-	out, err := exec.Command(bin, "run", "/bin/sh", "-c", "echo $$").CombinedOutput()
+	out, err := exec.Command(bin, "run", "--rootfs", "../testdata/rootfs", "/bin/sh", "-c", "echo $$").CombinedOutput()
 	if err != nil {
 		t.Fatalf("run failed: %v\n%s", err, out)
 	}

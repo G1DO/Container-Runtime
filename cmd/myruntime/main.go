@@ -21,11 +21,14 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 
+	"github.com/G1DO/Container-Runtime/internal/filesystem"
 	"github.com/G1DO/Container-Runtime/internal/namespace"
 )
 
@@ -39,13 +42,37 @@ func main() {
 	switch os.Args[1] {
 	case "init":
 		// Child side: we're inside the new namespaces.
-		// os.Args looks like: ["myruntime", "init", "/bin/sh", ...]
-		if len(os.Args) < 3 {
+		// os.Args looks like: ["myruntime", "init", "--rootfs", "/abs/rootfs", "--", "/bin/sh", ...]
+		initFlags := flag.NewFlagSet("init", flag.ContinueOnError)
+		initFlags.SetOutput(os.Stderr)
+		rootfs := initFlags.String("rootfs", "", "path to container root filesystem")
+		if err := initFlags.Parse(os.Args[2:]); err != nil {
+			os.Exit(2)
+		}
+		args := initFlags.Args()
+		if len(args) > 0 && args[0] == "--" {
+			args = args[1:]
+		}
+		if len(args) < 1 {
 			fmt.Fprintln(os.Stderr, "myruntime init: missing command")
 			os.Exit(1)
 		}
-		cmd := os.Args[2]
-		args := os.Args[2:]
+
+		if *rootfs == "" {
+			fmt.Fprintln(os.Stderr, "myruntime init: missing --rootfs")
+			os.Exit(1)
+		}
+		absRootfs, err := filepath.Abs(*rootfs)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "myruntime init: abs rootfs: %v\n", err)
+			os.Exit(1)
+		}
+		if err := filesystem.SetupContainerMounts(absRootfs); err != nil {
+			fmt.Fprintf(os.Stderr, "myruntime init: setup mounts: %v\n", err)
+			os.Exit(1)
+		}
+
+		cmd := args[0]
 		if err := syscall.Exec(cmd, args, os.Environ()); err != nil {
 			fmt.Fprintf(os.Stderr, "myruntime init: exec %s: %v\n", cmd, err)
 			os.Exit(1)
@@ -53,16 +80,40 @@ func main() {
 
 	case "run":
 		// Parent side: fork ourselves into new namespaces.
-		if len(os.Args) < 3 {
+		runFlags := flag.NewFlagSet("run", flag.ContinueOnError)
+		runFlags.SetOutput(os.Stderr)
+		rootfs := runFlags.String("rootfs", "", "path to container root filesystem")
+		if err := runFlags.Parse(os.Args[2:]); err != nil {
+			os.Exit(2)
+		}
+		args := runFlags.Args()
+		if len(args) > 0 && args[0] == "--" {
+			args = args[1:]
+		}
+		if len(args) < 1 {
 			fmt.Fprintln(os.Stderr, "myruntime run: missing command")
 			os.Exit(1)
 		}
-		cmd := exec.Command("/proc/self/exe", append([]string{"init"}, os.Args[2:]...)...)
+		if *rootfs == "" {
+			fmt.Fprintln(os.Stderr, "myruntime run: missing --rootfs")
+			os.Exit(1)
+		}
+		absRootfs, err := filepath.Abs(*rootfs)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "myruntime run: abs rootfs: %v\n", err)
+			os.Exit(1)
+		}
+
+		// For M1.2 we only enable PID + mount namespaces.
+		cloneFlags := uintptr(syscall.CLONE_NEWPID | syscall.CLONE_NEWNS)
+		_ = namespace.CloneFlags // kept for later milestones that use config-driven namespace selection
+
+		cmd := exec.Command("/proc/self/exe", append([]string{"init", "--rootfs", absRootfs, "--"}, args...)...)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		cmd.SysProcAttr = &syscall.SysProcAttr{
-			Cloneflags: namespace.CloneFlags(nil),
+			Cloneflags: cloneFlags,
 		}
 		if err := cmd.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "myruntime run: %v\n", err)
