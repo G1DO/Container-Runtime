@@ -5,6 +5,13 @@
 // Milestones: M1.2 (mount namespace + pivot_root), M3.3 (essential mounts)
 package filesystem
 
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"syscall"
+)
+
 // PivotRoot performs the pivot_root(2) syscall to change the container's root filesystem.
 //
 // Steps:
@@ -18,7 +25,51 @@ package filesystem
 // Security: pivot_root > chroot because the old root is completely detached.
 // With chroot, an attacker can escape via fchdir to an open fd outside the chroot.
 func PivotRoot(newRoot string) error {
-	// TODO(M1.2): Implement pivot_root sequence described above
+	if newRoot == "" {
+		return fmt.Errorf("pivot_root: newRoot is empty")
+	}
+	if !filepath.IsAbs(newRoot) {
+		return fmt.Errorf("pivot_root: newRoot must be absolute: %q", newRoot)
+	}
+	st, err := os.Stat(newRoot)
+	if err != nil {
+		return fmt.Errorf("pivot_root: stat newRoot %q: %w", newRoot, err)
+	}
+	if !st.IsDir() {
+		return fmt.Errorf("pivot_root: newRoot is not a directory: %q", newRoot)
+	}
+
+	// Stop mount propagation back to the host.
+	if err := syscall.Mount("", "/", "", syscall.MS_REC|syscall.MS_PRIVATE, ""); err != nil {
+		return fmt.Errorf("pivot_root: make / private: %w", err)
+	}
+
+	// pivot_root requires newRoot to be a mountpoint; bind-mount it onto itself.
+	if err := syscall.Mount(newRoot, newRoot, "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
+		return fmt.Errorf("pivot_root: bind-mount newRoot: %w", err)
+	}
+
+	putOld := filepath.Join(newRoot, ".pivot_root")
+	if err := os.MkdirAll(putOld, 0o700); err != nil {
+		return fmt.Errorf("pivot_root: mkdir putOld: %w", err)
+	}
+
+	if err := syscall.PivotRoot(newRoot, putOld); err != nil {
+		return fmt.Errorf("pivot_root: pivot_root(%q, %q): %w", newRoot, putOld, err)
+	}
+
+	if err := os.Chdir("/"); err != nil {
+		return fmt.Errorf("pivot_root: chdir(/): %w", err)
+	}
+
+	// After pivot_root, the old root is mounted at "/.pivot_root".
+	if err := syscall.Unmount("/.pivot_root", syscall.MNT_DETACH); err != nil {
+		return fmt.Errorf("pivot_root: unmount old root: %w", err)
+	}
+	if err := os.RemoveAll("/.pivot_root"); err != nil {
+		return fmt.Errorf("pivot_root: remove old root dir: %w", err)
+	}
+
 	return nil
 }
 
@@ -26,7 +77,14 @@ func PivotRoot(newRoot string) error {
 // This is critical: without it, ps/top show host processes instead of container processes.
 // Requires PID namespace to be active.
 func MountProc(rootfs string) error {
-	// TODO(M1.2): syscall.Mount("proc", <rootfs>/proc, "proc", 0, "")
+	_ = rootfs // rootfs is only relevant before pivot_root; after pivot_root we mount at /proc.
+
+	if err := os.MkdirAll("/proc", 0o555); err != nil {
+		return fmt.Errorf("mount proc: mkdir /proc: %w", err)
+	}
+	if err := syscall.Mount("proc", "/proc", "proc", 0, ""); err != nil {
+		return fmt.Errorf("mount proc: %w", err)
+	}
 	return nil
 }
 
@@ -50,7 +108,12 @@ func MountTmpfs(rootfs string) error {
 // 4. MountTmpfs (/tmp)
 // 5. CreateDevices (/dev, device nodes, /dev/pts, /dev/shm)
 func SetupContainerMounts(rootfs string) error {
-	// TODO(M1.2): Call PivotRoot
+	if err := PivotRoot(rootfs); err != nil {
+		return err
+	}
+	if err := MountProc(""); err != nil {
+		return err
+	}
 	// TODO(M3.3): Call MountProc, MountSys, MountTmpfs, CreateDevices
 	return nil
 }
