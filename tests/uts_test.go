@@ -7,21 +7,69 @@
 // Milestones: M1.3 (UTS namespace — hostname isolation)
 package tests
 
-import "testing"
+import (
+	"os"
+	"os/exec"
+	"strings"
+	"testing"
+)
 
 // TestContainerHostname verifies that the container can set its own hostname
 // and that it takes effect inside the namespace.
 func TestContainerHostname(t *testing.T) {
-	// TODO(M1.3): Start container with Hostname set to "test-container"
-	// TODO(M1.3): Run "hostname" inside container — should return "test-container"
-	t.Skip("not yet implemented")
+	needsRoot(t)
+	bin := runtimeBinary(t)
+	rootfs := testRootFS(t)
+
+	out, err := exec.Command(
+		bin,
+		"run",
+		"--rootfs",
+		rootfs,
+		"--hostname",
+		"test-container",
+		"/bin/hostname",
+	).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run failed: %v\n%s", err, out)
+	}
+
+	if got := strings.TrimSpace(string(out)); got != "test-container" {
+		t.Fatalf("expected container hostname %q, got %q", "test-container", got)
+	}
 }
 
 // TestHostHostnameUnchanged verifies that setting a hostname inside the container
 // does not modify the host's hostname.
 func TestHostHostnameUnchanged(t *testing.T) {
-	// TODO(M1.3): Record host hostname before container start
-	// TODO(M1.3): Start container that sets hostname to "container-test"
-	// TODO(M1.3): After container exits, verify host hostname is unchanged
-	t.Skip("not yet implemented")
+	needsRoot(t)
+	bin := runtimeBinary(t)
+	rootfs := testRootFS(t)
+
+	before, err := os.Hostname()
+	if err != nil {
+		t.Fatalf("hostname before: %v", err)
+	}
+
+	out, err := exec.Command(
+		bin,
+		"run",
+		"--rootfs",
+		rootfs,
+		"--hostname",
+		"container-test",
+		"/bin/true",
+	).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run failed: %v\n%s", err, out)
+	}
+
+	after, err := os.Hostname()
+	if err != nil {
+		t.Fatalf("hostname after: %v", err)
+	}
+
+	if before != after {
+		t.Fatalf("host hostname changed: before=%q after=%q", before, after)
+	}
 }
