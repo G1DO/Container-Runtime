@@ -42,10 +42,12 @@ func main() {
 	switch os.Args[1] {
 	case "init":
 		// Child side: we're inside the new namespaces.
-		// os.Args looks like: ["myruntime", "init", "--rootfs", "/abs/rootfs", "--", "/bin/sh", ...]
+		// os.Args looks like:
+		// ["myruntime", "init", "--rootfs", "/abs/rootfs", "--hostname", "name", "--", "/bin/sh", ...]
 		initFlags := flag.NewFlagSet("init", flag.ContinueOnError)
 		initFlags.SetOutput(os.Stderr)
 		rootfs := initFlags.String("rootfs", "", "path to container root filesystem")
+		hostname := initFlags.String("hostname", "", "container hostname")
 		if err := initFlags.Parse(os.Args[2:]); err != nil {
 			os.Exit(2)
 		}
@@ -71,6 +73,12 @@ func main() {
 			fmt.Fprintf(os.Stderr, "myruntime init: setup mounts: %v\n", err)
 			os.Exit(1)
 		}
+		if *hostname != "" {
+			if err := namespace.SetupHostname(*hostname); err != nil {
+				fmt.Fprintf(os.Stderr, "myruntime init: setup hostname: %v\n", err)
+				os.Exit(1)
+			}
+		}
 
 		cmd := args[0]
 		if err := syscall.Exec(cmd, args, os.Environ()); err != nil {
@@ -83,6 +91,7 @@ func main() {
 		runFlags := flag.NewFlagSet("run", flag.ContinueOnError)
 		runFlags.SetOutput(os.Stderr)
 		rootfs := runFlags.String("rootfs", "", "path to container root filesystem")
+		hostname := runFlags.String("hostname", "", "container hostname")
 		if err := runFlags.Parse(os.Args[2:]); err != nil {
 			os.Exit(2)
 		}
@@ -104,11 +113,18 @@ func main() {
 			os.Exit(1)
 		}
 
-		// For M1.2 we only enable PID + mount namespaces.
-		cloneFlags := uintptr(syscall.CLONE_NEWPID | syscall.CLONE_NEWNS)
+		// For M1.3 we enable PID, mount, and UTS namespaces.
+		cloneFlags := uintptr(syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUTS)
 		_ = namespace.CloneFlags // kept for later milestones that use config-driven namespace selection
 
-		cmd := exec.Command("/proc/self/exe", append([]string{"init", "--rootfs", absRootfs, "--"}, args...)...)
+		initArgs := []string{"init", "--rootfs", absRootfs}
+		if *hostname != "" {
+			initArgs = append(initArgs, "--hostname", *hostname)
+		}
+		initArgs = append(initArgs, "--")
+		initArgs = append(initArgs, args...)
+
+		cmd := exec.Command("/proc/self/exe", initArgs...)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
