@@ -6,6 +6,7 @@
 package namespace
 
 import (
+	"fmt"
 	"syscall"
 
 	"github.com/G1DO/Container-Runtime/pkg/specs"
@@ -21,7 +22,12 @@ func CloneFlags(config *specs.ContainerConfig) uintptr {
 // SetupHostname sets the container's hostname via the UTS namespace.
 // Requires CLONE_NEWUTS to have been set when creating the process.
 func SetupHostname(hostname string) error {
-	// TODO(M1.3): syscall.Sethostname([]byte(hostname))
+	if hostname == "" {
+		return nil
+	}
+	if err := syscall.Sethostname([]byte(hostname)); err != nil {
+		return fmt.Errorf("set hostname %q: %w", hostname, err)
+	}
 	return nil
 }
 
