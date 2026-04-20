@@ -113,9 +113,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		// For M1.4 we enable PID, mount, UTS, and IPC namespaces.
-		cloneFlags := uintptr(syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC)
-		_ = namespace.CloneFlags // kept for later milestones that use config-driven namespace selection
+		cloneFlags := namespace.CloneFlags(nil)
 
 		initArgs := []string{"init", "--rootfs", absRootfs}
 		if *hostname != "" {
