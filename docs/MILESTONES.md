@@ -109,6 +109,15 @@ Legend:
 1. What attack is possible if containers share an IPC namespace?
 2. What IPC mechanisms does this namespace isolate? What does it NOT isolate?
 
+**Suggested todo order:**
+- [ ] Study: `man 7 ipc_namespaces` — what an IPC namespace isolates and how it is created
+- [ ] Study: `man 7 svipc` — shared memory, semaphores, message queues, and the permission model
+- [ ] Study: `man 1 ipcs`, `man 1 ipcmk`, and `man 1 ipcrm` — inspect, create, and remove IPC objects from the shell
+- [ ] Study: `man 2 shmget`, `man 2 semget`, and `man 2 msgget` — the syscalls behind the userland tools
+- [ ] Understand: which IPC resources are namespace-scoped, which are not, and what can still leak between containers
+- [ ] Understand: why shared IPC state is a security and stability risk for containers
+- [ ] Answer the 2 checkpoint questions above before writing any code
+
 ---
 
 ### M1.5: Network Namespace (Basic — Loopback Only) (2 days)

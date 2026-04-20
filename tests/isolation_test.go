@@ -9,7 +9,9 @@
 package tests
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -32,6 +34,18 @@ func runtimeBinary(t *testing.T) string {
 	bin := t.TempDir() + "/myruntime"
 	cmd := exec.Command("go", "build", "-o", bin, "./cmd/myruntime/")
 	cmd.Dir = ".."
+	cacheDir := filepath.Join(t.TempDir(), "gocache")
+	modCacheDir := filepath.Join(t.TempDir(), "gomodcache")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir gocache: %v", err)
+	}
+	if err := os.MkdirAll(modCacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir gomodcache: %v", err)
+	}
+	cmd.Env = append(os.Environ(),
+		"GOCACHE="+cacheDir,
+		"GOMODCACHE="+modCacheDir,
+	)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build failed: %v\n%s", err, out)
 	}
@@ -56,7 +70,7 @@ func TestPIDNamespacePID1(t *testing.T) {
 // TestPIDIsolation verifies that a container only sees its own processes.
 func TestPIDIsolation(t *testing.T) {
 	needsRoot(t)
-	
+
 	// NOTE: ps reads /proc — since we don't have mount namespace isolation yet
 	// (M1.2), /proc is the host's, so ps will show host processes.
 	// This test will become meaningful after M1.2 mounts a fresh /proc.
