@@ -12,11 +12,11 @@ import (
 	"github.com/G1DO/Container-Runtime/pkg/specs"
 )
 
-// CloneFlags returns the combined CLONE_NEW* flags for all requested namespaces.
-// These flags are passed to clone(2) / unshare(2) when forking the container process.
+// CloneFlags returns the namespace flags used in phase 1.
+// Phase 1 enables PID, mount, UTS, and IPC namespaces.
+// Later milestones extend this when network and user namespace support lands.
 func CloneFlags(config *specs.ContainerConfig) uintptr {
-	// TODO(M1.1): Return CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWNET | CLONE_NEWUSER
-	return syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWNET | syscall.CLONE_NEWUSER
+	return syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC
 }
 
 // SetupHostname sets the container's hostname via the UTS namespace.
