@@ -15,15 +15,17 @@ package container
 // Sequence:
 //  1. Wait for parent to signal "ready" (cgroup setup complete)
 //  2. Setup mounts (pivot_root, /proc, /sys, /dev)
-//  3. Set hostname
-//  4. Configure environment variables
-//  5. Change to working directory
-//  6. Start zombie reaper goroutine
-//  7. Setup signal forwarding
-//  8. Exec the entrypoint (replaces this process)
+//  3. Bring loopback up in the fresh network namespace
+//  4. Set hostname
+//  5. Configure environment variables
+//  6. Change to working directory
+//  7. Start zombie reaper goroutine
+//  8. Setup signal forwarding
+//  9. Exec the entrypoint (replaces this process)
 func ContainerInit(containerID string) error {
 	// TODO(M5.3): Wait for parent signal via pipe
 	// TODO(M1.2): Call filesystem.SetupContainerMounts(rootfs)
+	// TODO(M1.5): Call namespace.SetupLoopback()
 	// TODO(M1.3): Call namespace.SetupHostname(hostname)
 	// TODO(M5.3): Set environment variables from config
 	// TODO(M5.3): Chdir to working directory
