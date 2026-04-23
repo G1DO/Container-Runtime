@@ -79,6 +79,10 @@ func main() {
 				os.Exit(1)
 			}
 		}
+		if err := namespace.SetupLoopback(); err != nil {
+			fmt.Fprintf(os.Stderr, "myruntime init: setup loopback: %v\n", err)
+			os.Exit(1)
+		}
 
 		cmd := args[0]
 		if err := syscall.Exec(cmd, args, os.Environ()); err != nil {
