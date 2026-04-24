@@ -1,14 +1,17 @@
 package namespace
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -76,6 +79,32 @@ func TestWriteIDMappingsRejectsInvalidMappings(t *testing.T) {
 	}
 }
 
+func TestUserNamespaceMapsContainerRootToHostUser(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("requires linux")
+	}
+	if os.Getuid() == 0 {
+		t.Skip("requires an unprivileged host user so container root maps away from host root")
+	}
+
+	probe, err := runUserNamespaceProbe(os.Getuid(), os.Getgid())
+	if err != nil {
+		if isNamespacePermissionError(err) {
+			t.Skipf("requires unprivileged user namespaces: %v", err)
+		}
+		t.Fatalf("run user namespace probe: %v", err)
+	}
+
+	if probe.InsideUID != 0 {
+		t.Fatalf("inside user namespace uid = %d, want 0", probe.InsideUID)
+	}
+	if probe.InsideGID != 0 {
+		t.Fatalf("inside user namespace gid = %d, want 0", probe.InsideGID)
+	}
+	assertAllIDs(t, "host Uid", probe.HostUIDs, os.Getuid())
+	assertAllIDs(t, "host Gid", probe.HostGIDs, os.Getgid())
+}
+
 func TestSetupLoopbackInFreshNetworkNamespace(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("requires linux")
@@ -83,7 +112,7 @@ func TestSetupLoopbackInFreshNetworkNamespace(t *testing.T) {
 
 	probe, err := runLoopbackProbe()
 	if err != nil {
-		if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) {
+		if isNamespacePermissionError(err) {
 			t.Skipf("requires unprivileged user and network namespaces: %v", err)
 		}
 		t.Fatalf("run loopback probe: %v", err)
@@ -138,6 +167,30 @@ func TestSetupLoopbackHelperProcess(t *testing.T) {
 	os.Exit(0)
 }
 
+func TestUserNamespaceHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_USERNS_HELPER") != "1" {
+		return
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+	if _, err := reader.ReadString('\n'); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	probe := userNamespaceProbe{
+		InsideUID: os.Getuid(),
+		InsideGID: os.Getgid(),
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(probe); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	_, _ = io.Copy(io.Discard, reader)
+	os.Exit(0)
+}
+
 type interfaceProbe struct {
 	Name string `json:"name"`
 	Up   bool   `json:"up"`
@@ -147,6 +200,13 @@ type loopbackProbe struct {
 	Before            []interfaceProbe `json:"before"`
 	After             []interfaceProbe `json:"after"`
 	LoopbackReachable bool             `json:"loopbackReachable"`
+}
+
+type userNamespaceProbe struct {
+	InsideUID int   `json:"insideUid"`
+	InsideGID int   `json:"insideGid"`
+	HostUIDs  []int `json:"hostUids,omitempty"`
+	HostGIDs  []int `json:"hostGids,omitempty"`
 }
 
 func runLoopbackProbe() (loopbackProbe, error) {
@@ -179,6 +239,83 @@ func runLoopbackProbe() (loopbackProbe, error) {
 	if err := json.Unmarshal(out, &probe); err != nil {
 		return loopbackProbe{}, fmt.Errorf("decode helper output %q: %w", string(out), err)
 	}
+	return probe, nil
+}
+
+func runUserNamespaceProbe(hostUID, hostGID int) (userNamespaceProbe, error) {
+	cmd := exec.Command(os.Args[0], "-test.run=TestUserNamespaceHelperProcess$")
+	cmd.Env = append(os.Environ(), "GO_WANT_USERNS_HELPER=1")
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUSER,
+	}
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return userNamespaceProbe{}, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return userNamespaceProbe{}, err
+	}
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		return userNamespaceProbe{}, err
+	}
+
+	cleanup := func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}
+
+	uidMappings := []syscall.SysProcIDMap{{
+		ContainerID: 0,
+		HostID:      hostUID,
+		Size:        1,
+	}}
+	gidMappings := []syscall.SysProcIDMap{{
+		ContainerID: 0,
+		HostID:      hostGID,
+		Size:        1,
+	}}
+	if err := WriteIDMappings(cmd.Process.Pid, uidMappings, gidMappings); err != nil {
+		cleanup()
+		return userNamespaceProbe{}, err
+	}
+
+	if _, err := io.WriteString(stdin, "ready\n"); err != nil {
+		cleanup()
+		return userNamespaceProbe{}, err
+	}
+
+	var probe userNamespaceProbe
+	if err := json.NewDecoder(stdout).Decode(&probe); err != nil {
+		cleanup()
+		return userNamespaceProbe{}, fmt.Errorf("decode helper output: %w: %s", err, stderr.String())
+	}
+
+	hostUIDs, err := readProcStatusIDs(cmd.Process.Pid, "Uid")
+	if err != nil {
+		cleanup()
+		return userNamespaceProbe{}, err
+	}
+	hostGIDs, err := readProcStatusIDs(cmd.Process.Pid, "Gid")
+	if err != nil {
+		cleanup()
+		return userNamespaceProbe{}, err
+	}
+	probe.HostUIDs = hostUIDs
+	probe.HostGIDs = hostGIDs
+
+	if err := stdin.Close(); err != nil {
+		cleanup()
+		return userNamespaceProbe{}, err
+	}
+	if err := cmd.Wait(); err != nil {
+		return userNamespaceProbe{}, fmt.Errorf("%w: %s", err, stderr.String())
+	}
+
 	return probe, nil
 }
 
@@ -250,6 +387,32 @@ func loopbackReachable() bool {
 	}
 }
 
+func readProcStatusIDs(pid int, name string) ([]int, error) {
+	status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+	if err != nil {
+		return nil, err
+	}
+
+	prefix := name + ":"
+	for _, line := range strings.Split(string(status), "\n") {
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+
+		fields := strings.Fields(strings.TrimPrefix(line, prefix))
+		ids := make([]int, 0, len(fields))
+		for _, field := range fields {
+			id, err := strconv.Atoi(field)
+			if err != nil {
+				return nil, fmt.Errorf("parse %s field %q: %w", name, field, err)
+			}
+			ids = append(ids, id)
+		}
+		return ids, nil
+	}
+	return nil, fmt.Errorf("%s line not found in /proc/%d/status", name, pid)
+}
+
 func assertFileContent(t *testing.T, path, want string) {
 	t.Helper()
 	got, err := os.ReadFile(path)
@@ -259,4 +422,20 @@ func assertFileContent(t *testing.T, path, want string) {
 	if string(got) != want {
 		t.Fatalf("%s = %q, want %q", path, got, want)
 	}
+}
+
+func assertAllIDs(t *testing.T, name string, got []int, want int) {
+	t.Helper()
+	if len(got) == 0 {
+		t.Fatalf("%s = %v, want at least one %d", name, got, want)
+	}
+	for _, id := range got {
+		if id != want {
+			t.Fatalf("%s = %v, want all IDs to be %d", name, got, want)
+		}
+	}
+}
+
+func isNamespacePermissionError(err error) bool {
+	return errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES)
 }
