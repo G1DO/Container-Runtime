@@ -2,7 +2,7 @@
 // Namespaces are the core mechanism that makes a process "not see" the host —
 // its own PID space, network stack, mount tree, hostname, IPC, and user IDs.
 //
-// Milestones: M1.1 (PID), M1.2 (MNT), M1.3 (UTS), M1.4 (IPC), M1.5 (NET)
+// Milestones: M1.1 (PID), M1.2 (MNT), M1.3 (UTS), M1.4 (IPC), M1.5 (NET), M1.6 (USER)
 package namespace
 
 import (
@@ -16,11 +16,10 @@ import (
 )
 
 // CloneFlags returns the namespace flags used in phase 1.
-// Phase 1 enables PID, mount, UTS, IPC, and network namespaces.
-// Later milestones extend this when user namespace support lands.
+// Phase 1 enables PID, mount, UTS, IPC, network, and user namespaces.
 func CloneFlags(config *specs.ContainerConfig) uintptr {
 	_ = config
-	return syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWNET
+	return syscall.CLONE_NEWUSER | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWNET
 }
 
 // SetupHostname sets the container's hostname via the UTS namespace.

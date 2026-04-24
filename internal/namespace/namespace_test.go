@@ -7,7 +7,9 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -15,9 +17,62 @@ import (
 
 func TestCloneFlagsPhase1(t *testing.T) {
 	got := CloneFlags(nil)
-	want := uintptr(syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWNET)
+	want := uintptr(syscall.CLONE_NEWUSER | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWNET)
 	if got != want {
 		t.Fatalf("CloneFlags(nil) = %#x, want %#x", got, want)
+	}
+}
+
+func TestDefaultIDMappings(t *testing.T) {
+	want := syscall.SysProcIDMap{
+		ContainerID: 0,
+		HostID:      100000,
+		Size:        65536,
+	}
+
+	uidMappings := DefaultUIDMappings()
+	if len(uidMappings) != 1 || uidMappings[0] != want {
+		t.Fatalf("DefaultUIDMappings() = %#v, want %#v", uidMappings, []syscall.SysProcIDMap{want})
+	}
+
+	gidMappings := DefaultGIDMappings()
+	if len(gidMappings) != 1 || gidMappings[0] != want {
+		t.Fatalf("DefaultGIDMappings() = %#v, want %#v", gidMappings, []syscall.SysProcIDMap{want})
+	}
+}
+
+func TestWriteIDMappingsFormatsProcFiles(t *testing.T) {
+	procPidDir := t.TempDir()
+	uidMappings := []syscall.SysProcIDMap{
+		{ContainerID: 0, HostID: 100000, Size: 65536},
+		{ContainerID: 65536, HostID: 200000, Size: 1},
+	}
+	gidMappings := []syscall.SysProcIDMap{
+		{ContainerID: 0, HostID: 100000, Size: 65536},
+	}
+
+	if err := writeIDMappings(procPidDir, uidMappings, gidMappings); err != nil {
+		t.Fatalf("writeIDMappings() error = %v", err)
+	}
+
+	assertFileContent(t, filepath.Join(procPidDir, "uid_map"), "0 100000 65536\n65536 200000 1\n")
+	assertFileContent(t, filepath.Join(procPidDir, "setgroups"), "deny\n")
+	assertFileContent(t, filepath.Join(procPidDir, "gid_map"), "0 100000 65536\n")
+}
+
+func TestWriteIDMappingsRejectsInvalidMappings(t *testing.T) {
+	err := WriteIDMappings(0, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "invalid pid") {
+		t.Fatalf("WriteIDMappings(0, nil, nil) error = %v, want invalid pid", err)
+	}
+
+	err = writeIDMappings(t.TempDir(), []syscall.SysProcIDMap{{
+		ContainerID: 0,
+		HostID:      100000,
+		Size:        0,
+	}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "non-positive size") {
+		t.Fatalf("writeIDMappings() error = %v, want non-positive size", err)
 	}
 }
 
@@ -192,5 +247,16 @@ func loopbackReachable() bool {
 		return err == nil
 	case <-time.After(time.Second):
 		return false
+	}
+}
+
+func assertFileContent(t *testing.T, path, want string) {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if string(got) != want {
+		t.Fatalf("%s = %q, want %q", path, got, want)
 	}
 }
