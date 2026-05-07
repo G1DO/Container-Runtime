@@ -124,6 +124,52 @@ func TestDestroyRejectsCgroupWithLiveProcesses(t *testing.T) {
 	assertDirExists(t, cgroupPath)
 }
 
+func TestCreateWritesCPULimitWithQuota(t *testing.T) {
+	manager := &Manager{BasePath: t.TempDir()}
+	config := specs.ResourceConfig{
+		CPUQuota:  50000,
+		CPUPeriod: 100000,
+	}
+
+	if err := manager.Create("abc123", config); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	cpuMaxPath := filepath.Join(manager.BasePath, "abc123", "cpu.max")
+	assertFileContent(t, cpuMaxPath, "50000 100000\n")
+}
+
+func TestCreateWithZeroCPUQuotaSkipsLimit(t *testing.T) {
+	manager := &Manager{BasePath: t.TempDir()}
+	config := specs.ResourceConfig{
+		CPUQuota:  0,
+		CPUPeriod: 100000,
+	}
+
+	if err := manager.Create("abc123", config); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	cpuMaxPath := filepath.Join(manager.BasePath, "abc123", "cpu.max")
+	if _, err := os.Stat(cpuMaxPath); !os.IsNotExist(err) {
+		t.Fatalf("cpu.max should not be written when CPUQuota is 0")
+	}
+}
+
+func TestCreateDefaultsCPUPeriodToOneHundredMs(t *testing.T) {
+	manager := &Manager{BasePath: t.TempDir()}
+	config := specs.ResourceConfig{
+		CPUQuota:  50000,
+		CPUPeriod: 0,
+	}
+
+	if err := manager.Create("abc123", config); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	cpuMaxPath := filepath.Join(manager.BasePath, "abc123", "cpu.max")
+	assertFileContent(t, cpuMaxPath, "50000 100000\n")
+}
 func assertDirExists(t *testing.T, path string) {
 	t.Helper()
 	info, err := os.Stat(path)
