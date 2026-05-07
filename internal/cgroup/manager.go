@@ -42,7 +42,6 @@ func NewManager(basePath string) *Manager {
 // Create sets up a per-container cgroup with the specified resource limits.
 // Creates /sys/fs/cgroup/myruntime/<containerID>/ and writes limit files.
 func (m *Manager) Create(containerID string, config specs.ResourceConfig) error {
-	_ = config
 	cgroupPath, err := m.containerPath(containerID)
 	if err != nil {
 		return err
@@ -51,7 +50,12 @@ func (m *Manager) Create(containerID string, config specs.ResourceConfig) error 
 		return fmt.Errorf("create cgroup %q: %w", containerID, err)
 	}
 
-	// TODO(M2.2): Write cpu.max
+	if config.CPUQuota > 0 {
+		if err := m.setCPULimit(cgroupPath, config.CPUQuota, config.CPUPeriod); err != nil {
+			return err
+		}
+	}
+
 	// TODO(M2.3): Write memory.max
 	// TODO(M2.4): Write pids.max
 	// TODO(M2.5): Write io.max
@@ -145,6 +149,26 @@ func enableAvailableControllers(cgroupPath string) error {
 	return nil
 }
 
+<<<<<<< HEAD
+=======
+// setCPULimit writes cpu.max and cpu.period_us to apply CPU throttling limits.
+// quota: microseconds per period (e.g., 50000 = 50% of one core)
+// period: microseconds (default 100000 = 100ms if 0)
+func (m *Manager) setCPULimit(cgroupPath string, quota int64, period int64) error {
+	if period == 0 {
+		period = 100000
+	}
+
+	maxPath := filepath.Join(cgroupPath, "cpu.max")
+	content := fmt.Sprintf("%d %d\n", quota, period)
+	if err := os.WriteFile(maxPath, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("set cpu.max: %w", err)
+	}
+
+	return nil
+}
+
+>>>>>>> m2.2-cpu-limits
 func (m *Manager) containerPath(containerID string) (string, error) {
 	if m == nil {
 		return "", fmt.Errorf("nil cgroup manager")
