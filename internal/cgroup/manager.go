@@ -56,7 +56,12 @@ func (m *Manager) Create(containerID string, config specs.ResourceConfig) error 
 		}
 	}
 
-	// TODO(M2.3): Write memory.max
+	if config.MemoryMax > 0 {
+		if err := m.setMemoryLimit(cgroupPath, config.MemoryMax); err != nil {
+			return err
+		}
+	}
+
 	// TODO(M2.4): Write pids.max
 	// TODO(M2.5): Write io.max
 	return nil
@@ -149,8 +154,6 @@ func enableAvailableControllers(cgroupPath string) error {
 	return nil
 }
 
-<<<<<<< HEAD
-=======
 // setCPULimit writes cpu.max and cpu.period_us to apply CPU throttling limits.
 // quota: microseconds per period (e.g., 50000 = 50% of one core)
 // period: microseconds (default 100000 = 100ms if 0)
@@ -168,7 +171,28 @@ func (m *Manager) setCPULimit(cgroupPath string, quota int64, period int64) erro
 	return nil
 }
 
->>>>>>> m2.2-cpu-limits
+// setMemoryLimit writes memory.max to enforce a hard memory cap.
+// When the cgroup tries to allocate beyond limitBytes, the kernel reclaims
+// pages first; if that fails, the cgroup OOM killer fires.
+//
+// memory.swap.max is also set to 0 so swap can't mask the limit during tests.
+// If the kernel was built without swap support the file is absent — ignore that.
+func (m *Manager) setMemoryLimit(cgroupPath string, limitBytes int64) error {
+	maxPath := filepath.Join(cgroupPath, "memory.max")
+	content := strconv.FormatInt(limitBytes, 10) + "\n"
+	if err := os.WriteFile(maxPath, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("set memory.max: %w", err)
+	}
+
+	swapPath := filepath.Join(cgroupPath, "memory.swap.max")
+	if err := os.WriteFile(swapPath, []byte("0\n"), 0o644); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("set memory.swap.max: %w", err)
+	}
+
+	return nil
+}
+
+
 func (m *Manager) containerPath(containerID string) (string, error) {
 	if m == nil {
 		return "", fmt.Errorf("nil cgroup manager")
