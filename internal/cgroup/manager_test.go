@@ -170,6 +170,50 @@ func TestCreateDefaultsCPUPeriodToOneHundredMs(t *testing.T) {
 	cpuMaxPath := filepath.Join(manager.BasePath, "abc123", "cpu.max")
 	assertFileContent(t, cpuMaxPath, "50000 100000\n")
 }
+
+func TestCreateWritesMemoryLimit(t *testing.T) {
+	manager := &Manager{BasePath: t.TempDir()}
+	config := specs.ResourceConfig{
+		MemoryMax: 64 * 1024 * 1024,
+	}
+
+	if err := manager.Create("abc123", config); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	memoryMaxPath := filepath.Join(manager.BasePath, "abc123", "memory.max")
+	assertFileContent(t, memoryMaxPath, "67108864\n")
+}
+
+func TestCreateWritesMemorySwapLimit(t *testing.T) {
+	manager := &Manager{BasePath: t.TempDir()}
+	config := specs.ResourceConfig{
+		MemoryMax: 64 * 1024 * 1024,
+	}
+
+	if err := manager.Create("abc123", config); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	swapMaxPath := filepath.Join(manager.BasePath, "abc123", "memory.swap.max")
+	assertFileContent(t, swapMaxPath, "0\n")
+}
+
+func TestCreateWithZeroMemoryMaxSkipsLimit(t *testing.T) {
+	manager := &Manager{BasePath: t.TempDir()}
+	config := specs.ResourceConfig{
+		MemoryMax: 0,
+	}
+
+	if err := manager.Create("abc123", config); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	memoryMaxPath := filepath.Join(manager.BasePath, "abc123", "memory.max")
+	if _, err := os.Stat(memoryMaxPath); !os.IsNotExist(err) {
+		t.Fatalf("memory.max should not be written when MemoryMax is 0")
+	}
+}
 func assertDirExists(t *testing.T, path string) {
 	t.Helper()
 	info, err := os.Stat(path)

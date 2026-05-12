@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -16,12 +15,83 @@ import (
 )
 
 // TestMemoryLimit starts a container with a 64MB memory limit, then tries
-// to allocate 128MB. The kernel should OOM-kill the process (exit code 137).
+// to allocate well past it. The cgroup OOM killer should SIGKILL the process
+// (exit code 137 = 128 + 9), and memory.events should record the kill.
 func TestMemoryLimit(t *testing.T) {
-	// TODO(M9.2): Start container with 64MB memory limit
-	// TODO(M9.2): Run "stress --vm 1 --vm-bytes 128M" inside
-	// TODO(M9.2): Assert exit code == 137 (SIGKILL from OOM)
-	t.Skip("not yet implemented")
+	needsRoot(t)
+
+	basePath := filepath.Join("/sys/fs/cgroup", "myruntime-test-"+strconv.Itoa(os.Getpid()))
+	containerID := "test-memory-limit"
+	cgroupPath := filepath.Join(basePath, containerID)
+
+	if err := os.MkdirAll(cgroupPath, 0o755); err != nil {
+		t.Fatalf("mkdir cgroup: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Remove(cgroupPath)
+		_ = os.Remove(basePath)
+	})
+
+	// Enable the memory controller in the parent's subtree_control so the
+	// child cgroup actually has memory.max available.
+	if err := os.WriteFile(filepath.Join(basePath, "cgroup.subtree_control"), []byte("+memory\n"), 0o644); err != nil {
+		t.Fatalf("enable memory controller: %v", err)
+	}
+
+	// 64 MiB hard limit. Disable swap so the kernel can't dodge the OOM.
+	if err := os.WriteFile(filepath.Join(cgroupPath, "memory.max"), []byte("67108864\n"), 0o644); err != nil {
+		t.Fatalf("write memory.max: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cgroupPath, "memory.swap.max"), []byte("0\n"), 0o644); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("write memory.swap.max: %v", err)
+	}
+
+	// tail /dev/zero reads zeros into an ever-growing buffer, forcing the
+	// kernel to back each page with real RAM. Cheap, reliable OOM trigger.
+	cmd := exec.Command("tail", "/dev/zero")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start victim: %v", err)
+	}
+	defer func() { _ = cmd.Process.Kill() }()
+
+	procsPath := filepath.Join(cgroupPath, "cgroup.procs")
+	if err := os.WriteFile(procsPath, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644); err != nil {
+		t.Fatalf("add process to cgroup: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("victim still alive after 15s; OOM killer never fired")
+	}
+
+	// exit code should be 137 (128 + SIGKILL). Go reports this via
+	// ProcessState.ExitCode() once the process has been signalled.
+	exitCode := cmd.ProcessState.ExitCode()
+	if exitCode != 137 {
+		t.Fatalf("exit code = %d, want 137 (SIGKILL from OOM)", exitCode)
+	}
+
+	// memory.events should now show oom_kill >= 1.
+	events, err := os.ReadFile(filepath.Join(cgroupPath, "memory.events"))
+	if err != nil {
+		t.Fatalf("read memory.events: %v", err)
+	}
+	var oomKill int64 = -1
+	for _, line := range strings.Split(string(events), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[0] == "oom_kill" {
+			oomKill, _ = strconv.ParseInt(fields[1], 10, 64)
+		}
+	}
+	if oomKill < 1 {
+		t.Fatalf("memory.events oom_kill = %d, want >= 1; events=%q", oomKill, string(events))
+	}
+
+	t.Logf("victim OOM-killed as expected, oom_kill=%d", oomKill)
 }
 
 // TestCPULimit starts a container with 50% CPU, runs a CPU-bound task,
