@@ -56,8 +56,17 @@ func (m *Manager) Create(containerID string, config specs.ResourceConfig) error 
 		}
 	}
 
-	// TODO(M2.3): Write memory.max
-	// TODO(M2.4): Write pids.max
+	if config.MemoryMax > 0 {
+		if err := m.setMemoryLimit(cgroupPath, config.MemoryMax); err != nil {
+			return err
+		}
+	}
+
+	if config.PidsMax > 0 {
+		if err := m.setPidsLimit(cgroupPath, config.PidsMax); err != nil {
+			return err
+		}
+	}
 	// TODO(M2.5): Write io.max
 	return nil
 }
@@ -112,8 +121,27 @@ func (m *Manager) Destroy(containerID string) error {
 
 // Stats reads live resource usage from cgroup stat files.
 func (m *Manager) Stats(containerID string) (*specs.CgroupStats, error) {
-	// TODO(M2.6): Read cpu.stat, memory.current, memory.max, pids.current, io.stat
-	return nil, nil
+	cgroupPath, err := m.containerPath(containerID)
+	if err != nil {
+		return nil, err
+	}
+
+	stats := &specs.CgroupStats{}
+
+	memCurrent, err := readMemoryCurrent(cgroupPath)
+	if err != nil {
+		return nil, err
+	}
+	stats.MemoryCurrent = memCurrent
+
+	oomKill, err := readOOMKillCount(cgroupPath)
+	if err != nil {
+		return nil, err
+	}
+	stats.OOMKillCount = oomKill
+
+	// TODO(M2.6): cpu.stat, memory.max, pids.current, io.stat
+	return stats, nil
 }
 
 func enableAvailableControllers(cgroupPath string) error {
@@ -149,8 +177,6 @@ func enableAvailableControllers(cgroupPath string) error {
 	return nil
 }
 
-<<<<<<< HEAD
-=======
 // setCPULimit writes cpu.max and cpu.period_us to apply CPU throttling limits.
 // quota: microseconds per period (e.g., 50000 = 50% of one core)
 // period: microseconds (default 100000 = 100ms if 0)
@@ -168,7 +194,52 @@ func (m *Manager) setCPULimit(cgroupPath string, quota int64, period int64) erro
 	return nil
 }
 
->>>>>>> m2.2-cpu-limits
+func (m *Manager) setMemoryLimit(cgroupPath string, memoryMax int64) error {
+	maxPath := filepath.Join(cgroupPath, "memory.max")
+	if err := os.WriteFile(maxPath, []byte(strconv.FormatInt(memoryMax, 10)+"\n"), 0o644); err != nil {
+		return fmt.Errorf("set memory.max: %w", err)
+	}
+	return nil
+}
+
+func readMemoryCurrent(cgroupPath string) (int64, error) {
+	data, err := os.ReadFile(filepath.Join(cgroupPath, "memory.current"))
+	if err != nil {
+		return 0, fmt.Errorf("read memory.current: %w", err)
+	}
+	val, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse memory.current: %w", err)
+	}
+	return val, nil
+}
+
+func readOOMKillCount(cgroupPath string) (int64, error) {
+	data, err := os.ReadFile(filepath.Join(cgroupPath, "memory.events"))
+	if err != nil {
+		return 0, fmt.Errorf("read memory.events: %w", err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[0] == "oom_kill" {
+			val, err := strconv.ParseInt(fields[1], 10, 64)
+			if err != nil {
+				return 0, fmt.Errorf("parse memory.events oom_kill: %w", err)
+			}
+			return val, nil
+		}
+	}
+	return 0, nil
+}
+
+func (m *Manager) setPidsLimit(cgroupPath string, pidsMax int64) error {
+	maxPath := filepath.Join(cgroupPath, "pids.max")
+	if err := os.WriteFile(maxPath, []byte(strconv.FormatInt(pidsMax, 10)+"\n"), 0o644); err != nil {
+		return fmt.Errorf("set pids.max: %w", err)
+	}
+	return nil
+}
+
 func (m *Manager) containerPath(containerID string) (string, error) {
 	if m == nil {
 		return "", fmt.Errorf("nil cgroup manager")
