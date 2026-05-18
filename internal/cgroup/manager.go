@@ -134,13 +134,19 @@ func (m *Manager) Stats(containerID string) (*specs.CgroupStats, error) {
 	}
 	stats.MemoryCurrent = memCurrent
 
+	memMax, err := readMemoryMax(cgroupPath)
+	if err != nil {
+		return nil, err
+	}
+	stats.MemoryLimit = memMax
+
 	oomKill, err := readOOMKillCount(cgroupPath)
 	if err != nil {
 		return nil, err
 	}
 	stats.OOMKillCount = oomKill
 
-	// TODO(M2.6): cpu.stat, memory.max, pids.current, io.stat
+	// TODO(M2.6): cpu.stat, pids.current, io.stat
 	return stats, nil
 }
 
@@ -200,6 +206,22 @@ func (m *Manager) setMemoryLimit(cgroupPath string, memoryMax int64) error {
 		return fmt.Errorf("set memory.max: %w", err)
 	}
 	return nil
+}
+
+func readMemoryMax(cgroupPath string) (int64, error) {
+	data, err := os.ReadFile(filepath.Join(cgroupPath, "memory.max"))
+	if err != nil {
+		return 0, fmt.Errorf("read memory.max: %w", err)
+	}
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "max" {
+		return 0, nil
+	}
+	val, err := strconv.ParseInt(trimmed, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse memory.max: %w", err)
+	}
+	return val, nil
 }
 
 func readMemoryCurrent(cgroupPath string) (int64, error) {
