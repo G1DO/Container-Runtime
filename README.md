@@ -109,5 +109,14 @@ docker run --privileged -it -v $(pwd):/workspace myruntime-dev
 
 ## Docs
 
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — component breakdown, dependency graph, data flows
-- [MILESTONES.md](docs/MILESTONES.md) — 29-milestone learning roadmap across 9 phases
+- [design.md](docs/design.md) — problem, goals & non-goals, an honest **implemented-vs-scaffolded status table**, failure modes, security stance, and trade-offs
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — intended component breakdown, dependency graph, data flows
+- [decisions/](docs/decisions/) — ADRs, each naming the rejected alternative:
+  - [ADR-001](docs/decisions/ADR-001-reexec-init.md) — re-exec `/proc/self/exe` vs. direct `clone()`
+  - [ADR-002](docs/decisions/ADR-002-cgroup-v2-only.md) — cgroup v2-only via direct sysfs writes
+  - [ADR-003](docs/decisions/ADR-003-pivot-root-vs-chroot.md) — `pivot_root` vs. `chroot`
+  - [ADR-004](docs/decisions/ADR-004-raw-rtnetlink.md) — hand-rolled rtnetlink vs. a netlink library / `ip(8)`
+  - [ADR-005](docs/decisions/ADR-005-json-state-files.md) — JSON state files vs. an embedded database
+  - [ADR-006](docs/decisions/ADR-006-all-namespaces-combined.md) — all six namespaces combined vs. configurable
+- [threat-model.md](docs/threat-model.md) — STRIDE-lite analysis with the trust-boundary diagram
+- [diagrams/](docs/diagrams/) — Mermaid sources + rendered SVGs (CI-gated for drift)
