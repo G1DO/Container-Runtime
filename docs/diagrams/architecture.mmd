@@ -1,0 +1,55 @@
+%% myruntime architecture: the implemented run -> init path (solid, green) vs the
+%% designed-but-stubbed Runtime orchestration (dashed, grey).
+%% Source of truth: cmd/myruntime/main.go (run/init), internal/{namespace,filesystem,cgroup},
+%% and the intended wiring in docs/ARCHITECTURE.md. Referenced from docs/design.md.
+
+flowchart TB
+    cli(["myruntime CLI<br/><i>cmd/myruntime/main.go</i>"])
+
+    subgraph live ["Implemented: run &rarr; init"]
+        direction TB
+        run["run (parent)<br/>namespace.CloneFlags &rarr; re-exec /proc/self/exe"]
+        init["init (child) &mdash; PID 1 in the new namespaces"]
+        mounts["filesystem.SetupContainerMounts<br/>PivotRoot + MountProc"]
+        uts["namespace.SetupHostname<br/><i>sethostname(2)</i>"]
+        lo["namespace.SetupLoopback<br/><i>raw rtnetlink RTM_NEWLINK</i>"]
+        entry["syscall.Exec(entrypoint)"]
+        run --> init --> mounts --> uts --> lo --> entry
+    end
+
+    cli -- "run" --> run
+
+    cg["cgroup.Manager<br/>cpu.max &middot; memory.max &middot; pids.max<br/><i>implemented &mdash; not on the live path</i>"]
+
+    subgraph designed ["Designed / stubbed (M5+)"]
+        direction TB
+        rt["container.Runtime<br/>Create/Start/Stop/Kill/Delete"]
+        store[("store.ContainerStore<br/>state.json")]
+        overlay["filesystem.OverlayFS + LayerStore"]
+        image["image.Store + RegistryClient"]
+        net["network: bridge &middot; veth &middot; IPAM &middot; NAT"]
+        cinit["container.ContainerInit<br/>reaper + signal forwarding"]
+    end
+
+    cli -. "create / start / stop / ... (not implemented)" .-> rt
+    rt -. "persist" .-> store
+    rt -. "limits + AddProcess" .-> cg
+    rt -. "overlay mount" .-> overlay
+    rt -. "pull + resolve layers" .-> image
+    rt -. "connectivity" .-> net
+    rt -. "PID 1 init" .-> cinit
+
+    specs["pkg/specs &mdash; shared contract types<br/>Container &middot; *Config &middot; CgroupStats"]
+    run -. imports .-> specs
+    cg -. imports .-> specs
+    rt -. imports .-> specs
+    image -. imports .-> specs
+    net -. imports .-> specs
+    store -. imports .-> specs
+
+    classDef impl fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20;
+    classDef stub stroke-dasharray:4 4,fill:#fafafa,color:#555;
+    classDef contract fill:#e3f2fd,stroke:#1565c0,color:#0d47a1;
+    class run,init,mounts,uts,lo,entry,cg impl;
+    class rt,store,overlay,image,net,cinit stub;
+    class specs contract;

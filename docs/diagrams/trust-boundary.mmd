@@ -1,0 +1,38 @@
+%% Trust boundary for myruntime. Inside "Container" = untrusted; "Host" = the trusted
+%% privileged runtime + on-disk state. The shared kernel is the ULTIMATE boundary: a
+%% kernel exploit from inside the container bypasses every namespace and cgroup control.
+%% The USER-namespace UID/GID map write is the primary privilege boundary, drawn dashed
+%% because the live CLI run path never performs it. Referenced from docs/threat-model.md.
+
+flowchart TB
+    img["untrusted image layers<br/><b>(T-3: tar traversal)</b>"]
+
+    subgraph host ["Host (trusted)"]
+        parent["privileged myruntime parent<br/>root / CAP_SYS_ADMIN"]
+        cgfs[("/sys/fs/cgroup/myruntime/&lt;id&gt;<br/>cpu.max &middot; memory.max &middot; pids.max")]
+        procmap[("/proc/&lt;pid&gt;/uid_map &middot; gid_map")]
+        state[("&lt;root&gt;/&lt;id&gt;/state.json<br/><b>(T-4: tamperable)</b>")]
+        hnet["host network<br/>bridge &middot; iptables &middot; ip_forward"]
+    end
+
+    subgraph cont ["Container (untrusted)"]
+        entry["entrypoint as PID 1<br/>6 namespaces &middot; pivoted root"]
+    end
+
+    kernel["shared host kernel &mdash; ultimate trust boundary"]
+
+    parent -- "clone(CLONE_NEW*)<br/>pivot_root &middot; mounts" --> entry
+    parent -- "cgroup sysfs writes" --> cgfs
+    parent -- "netlink loopback up" --> entry
+    parent -. "UID/GID map write &mdash; NOT WIRED on run path" .-> procmap
+    img -. "tar unpack as root" .-> parent
+    entry -. "edits if exposed" .-> state
+    host --- kernel
+    cont --- kernel
+
+    classDef trusted fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20;
+    classDef untrusted fill:#ffebee,stroke:#c62828,color:#b71c1c;
+    classDef boundary stroke-dasharray:5 4,fill:#fff8e1,stroke:#5d4037,color:#5d4037;
+    class host trusted;
+    class cont,img untrusted;
+    class kernel boundary;
