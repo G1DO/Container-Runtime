@@ -14,6 +14,9 @@ testdata/
 # OS
 .DS_Store
 
-# Private docs
-docs/PLAN.md
-docs/JOURNAL.md
+
+
+# Docs tooling (Node — Mermaid diagram rendering)
+/node_modules/
+npm-debug.log*
+/node_modules
